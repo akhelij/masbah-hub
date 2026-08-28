@@ -1,0 +1,350 @@
+// Masbah.ma — Centralized Operations Hub
+// Schema covers: auth, CRM leads, messaging, content, automations, analytics.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- Users / auth
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  image        String?
+  role         Role     @default(OPERATOR)
+  locale       String   @default("fr")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignedLeads Lead[]     @relation("AssignedLeads")
+  activities    Activity[]
+}
+
+// ---------------------------------------------------------------------- Leads
+
+enum LeadSource {
+  GOOGLE_MAPS
+  MANUAL
+  REFERRAL
+  FACEBOOK
+  INSTAGRAM
+  WHATSAPP
+  WEBSITE
+  ADS
+  OTHER
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  RESPONDED
+  MEETING_SCHEDULED
+  ONBOARDING
+  LISTED
+  ACTIVE
+  PAUSED
+  LOST
+}
+
+model Lead {
+  id          String     @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?
+  whatsapp    String?
+  address     String?
+  city        String
+  source      LeadSource @default(MANUAL)
+  sourceQuery String?
+  status      LeadStatus @default(NEW)
+  rating      Float?
+  mapsUrl     String?
+  website     String?
+  latitude    Float?
+  longitude   Float?
+  notes       String?
+  tags        String[]   @default([])
+
+  assignedToId String?
+  assignedTo   User?   @relation("AssignedLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  // Auto-computed 0-100 priority score (see lib/scoring.ts)
+  score Int @default(0)
+
+  // Contact tracking
+  firstContactAt DateTime?
+  lastContactAt  DateTime?
+  nextFollowUpAt DateTime?
+  contactCount   Int       @default(0)
+
+  // Pool details (populated once the owner signs up)
+  poolName     String?
+  poolAddress  String?
+  poolCity     String?
+  poolPhotos   String[] @default([])
+  pricePerHour Float?
+  pricePerDay  Float?
+  capacity     Int?
+  amenities    String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages   Message[]
+  activities Activity[]
+
+  @@index([status])
+  @@index([city])
+  @@index([source])
+  @@index([createdAt])
+  @@index([nextFollowUpAt])
+}
+
+// ------------------------------------------------------------------- Messages
+
+enum Channel {
+  WHATSAPP
+  EMAIL
+  INSTAGRAM
+  FACEBOOK
+  SMS
+  OTHER
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum Language {
+  FR
+  AR
+  EN
+}
+
+model Message {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  channel   Channel   @default(WHATSAPP)
+  direction Direction @default(OUTBOUND)
+  content   String
+  language  Language  @default(FR)
+
+  templateId String?
+  template   Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  failedAt    DateTime?
+  error       String?
+
+  aiGenerated Boolean @default(false)
+  aiPrompt    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([createdAt])
+  @@index([channel])
+}
+
+// ------------------------------------------------------------------ Templates
+
+enum TemplateCategory {
+  INITIAL_OUTREACH
+  FOLLOW_UP_1
+  FOLLOW_UP_2
+  ONBOARDING
+  RE_ENGAGEMENT
+  CUSTOM
+}
+
+model Template {
+  id         String           @id @default(cuid())
+  name       String
+  channel    Channel          @default(WHATSAPP)
+  language   Language         @default(FR)
+  category   TemplateCategory @default(INITIAL_OUTREACH)
+  subject    String?
+  body       String
+  variables  String[]         @default([])
+  isActive   Boolean          @default(true)
+  usageCount Int              @default(0)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  messages Message[]
+}
+
+// -------------------------------------------------------------------- Content
+
+enum Platform {
+  INSTAGRAM
+  FACEBOOK
+  TIKTOK
+  LINKEDIN
+  WHATSAPP_STATUS
+}
+
+enum PostType {
+  EDUCATIONAL
+  SOCIAL_PROOF
+  PROMOTIONAL
+  FAQ
+  BEHIND_SCENES
+  POOL_SHOWCASE
+  TREND_JACKING
+}
+
+enum ContentStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+model ContentPost {
+  id        String   @id @default(cuid())
+  title     String?
+  content   String
+  contentAr String?
+  hashtags  String[] @default([])
+  platform  Platform @default(INSTAGRAM)
+  postType  PostType @default(EDUCATIONAL)
+
+  aiGenerated   Boolean @default(true)
+  aiPrompt      String?
+  imagePrompt   String?
+
+  imageUrl String?
+  videoUrl String?
+
+  status      ContentStatus @default(DRAFT)
+  scheduledAt DateTime?
+  publishedAt DateTime?
+
+  likes    Int?
+  comments Int?
+  shares   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// ------------------------------------------------------------------ Activities
+
+enum ActivityType {
+  CREATED
+  STATUS_CHANGE
+  NOTE
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  CALL
+  MEETING
+  IMPORT
+  FIELD_UPDATE
+  AUTOMATION
+}
+
+model Activity {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  type      ActivityType
+  title     String
+  detail    String?
+  meta      Json?
+  createdAt DateTime     @default(now())
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+// ----------------------------------------------------------------- Automation
+
+enum TriggerType {
+  LEAD_CREATED
+  LEAD_STATUS_CHANGED
+  MESSAGE_RECEIVED
+  LEAD_STALE
+}
+
+enum ActionType {
+  SEND_WEBHOOK
+  CHANGE_STATUS
+  ADD_TAG
+  SCHEDULE_FOLLOW_UP
+  NOTIFY
+}
+
+model Automation {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  trigger     TriggerType
+  conditions  Json?
+  action      ActionType
+  actionConfig Json?
+  isActive    Boolean     @default(true)
+  runCount    Int         @default(0)
+  lastRunAt   DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  logs WebhookLog[]
+}
+
+model WebhookLog {
+  id           String      @id @default(cuid())
+  automationId String?
+  automation   Automation? @relation(fields: [automationId], references: [id], onDelete: SetNull)
+
+  event      String
+  direction  Direction @default(OUTBOUND)
+  endpoint   String?
+  payload    Json
+  statusCode Int?
+  response   String?
+  success    Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  key        String    @unique
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

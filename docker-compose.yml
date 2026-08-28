@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: masbah-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: masbah
+      POSTGRES_PASSWORD: masbah
+      POSTGRES_DB: masbah_crm
+    ports:
+      - "5433:5432"
+    volumes:
+      - masbah_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U masbah -d masbah_crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  masbah_pgdata:
